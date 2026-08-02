@@ -21,7 +21,7 @@ app = FastAPI(
     description="REST API for storing and managing contacts, built with "
     "FastAPI, SQLAlchemy and PostgreSQL. All contact operations require "
     "a JWT obtained via /api/auth/login.",
-    version="2.0.0",
+    version="3.0.0",
 )
 
 # Rate limiting (slowapi): routes opt in with @limiter.limit(...).
@@ -43,6 +43,7 @@ app.include_router(contacts.router, prefix="/api")
 
 @app.get("/", tags=["utility"], summary="Service greeting")
 def root():
+    """Greet whoever opens the API root and point them at the docs."""
     return {"message": "Contacts API. See /docs for the Swagger documentation."}
 
 
