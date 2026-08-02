@@ -1,147 +1,165 @@
-# UMT-pythonweb-hw-08
+# UMT-pythonweb-hw-11
 
 REST API for storing and managing contacts, built with **FastAPI**, **SQLAlchemy**
-and **PostgreSQL**, with request validation through **Pydantic** and interactive
-Swagger documentation.
+and **PostgreSQL** — continued from hw-08 with **JWT authentication**, **email
+verification**, **rate limiting**, **CORS** and **Cloudinary** avatar uploads.
 
-Homework 8, "FullStack Web Development on Python".
+Homework 11, "FullStack Web Development on Python".
 
 ## Features
 
-- Full CRUD for contacts
-- Search by first name, last name or email through query parameters
-- Contacts with a birthday in the next 7 days
-- Swagger UI at `/docs` and ReDoc at `/redoc`
-- Alembic migrations
-- Pydantic validation of every field, including the birthday as a real date
-
-## Contact fields
-
-| Field | Type | Required | Notes |
-|-------|------|----------|-------|
-| `first_name` | string, 1–50 | yes | trimmed, must not be blank |
-| `last_name` | string, 1–50 | yes | trimmed, must not be blank |
-| `email` | email | yes | unique, validated by `EmailStr` |
-| `phone` | string, ≤30 | yes | digits with `+`, spaces, dashes, parentheses |
-| `birthday` | date | yes | must be a real date, in the past, after 1900 |
-| `additional_data` | string, ≤500 | no | free-form notes |
-| `id`, `created_at`, `updated_at` | — | — | set by the server |
+- Registration and login with **JWT** access tokens
+- Passwords stored only as **bcrypt** hashes
+- **Email verification**: the signup email carries a confirmation link
+  (without SMTP configured the link is written to the server log instead)
+- Every contact belongs to its owner — users see **only their own contacts**
+- Full CRUD for contacts, search, upcoming birthdays (from hw-08)
+- `GET /api/users/me` is **rate limited** (10 requests/minute)
+- **CORS** enabled, allowed origins configurable via `.env`
+- Avatar upload to **Cloudinary** via `PATCH /api/users/avatar`
+- All secrets live in `.env`; Docker Compose runs both the API and PostgreSQL
 
 ## Getting started
 
-### 1. Start PostgreSQL
+### Option A: everything in Docker
 
 ```bash
-docker compose up -d
+cp .env.example .env      # fill in SECRET_KEY at minimum
+docker compose up --build
 ```
 
-or manually:
+The API container applies migrations on start and serves at
+**http://localhost:8000/docs**.
+
+### Option B: PostgreSQL in Docker, API on the host
 
 ```bash
-docker run --name hw08-postgres -p 5432:5432 \
-  -e POSTGRES_PASSWORD=hw08secret -e POSTGRES_DB=contacts_app -d postgres:16
-```
+docker compose up -d postgres
 
-### 2. Install dependencies
-
-```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+uv venv .venv && source .venv/bin/activate   # or python -m venv .venv
 pip install -r requirements.txt
-cp .env.example .env               # adjust DATABASE_URL if needed
-```
+cp .env.example .env                          # fill in SECRET_KEY
 
-### 3. Apply migrations
-
-```bash
 alembic upgrade head
-```
-
-### 4. Run the API
-
-```bash
 uvicorn main:app --reload
 ```
 
-Open **http://localhost:8000/docs** for the Swagger UI.
+Generate a secret key with:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
 
 ## Endpoints
 
+### Auth
+
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/contacts` | Create a contact — `201`, or `409` if the email is taken |
+| `POST` | `/api/auth/signup` | Register — `201` with the user, `409` if the email is taken |
+| `POST` | `/api/auth/login` | Form fields `username` (the email) + `password` — `200` with `access_token`, `401` on bad credentials or unconfirmed email |
+| `GET` | `/api/auth/confirmed_email/{token}` | Landing for the link from the verification email |
+| `POST` | `/api/auth/request_email` | Re-send the verification email |
+
+### Users
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/users/me` | The authenticated user — limited to 10 requests/minute, `429` above that |
+| `PATCH` | `/api/users/avatar` | Multipart upload; stores the image in Cloudinary and saves the URL |
+
+### Contacts (JWT required, each user sees only their own)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/contacts` | Create a contact — `201`, or `409` if the email is already in this user's book |
 | `GET` | `/api/contacts` | List contacts, with search and pagination |
-| `GET` | `/api/contacts/{id}` | Get one contact — `404` if it does not exist |
+| `GET` | `/api/contacts/{id}` | Get one contact — `404` if it does not exist or belongs to someone else |
 | `PUT` | `/api/contacts/{id}` | Update a contact, partial payloads allowed |
 | `DELETE` | `/api/contacts/{id}` | Delete a contact — `204` |
-| `GET` | `/api/contacts/birthdays` | Contacts with a birthday in the next 7 days |
+| `GET` | `/api/contacts/birthdays` | Contacts with a birthday in the next 7 days (`?days=` up to 365) |
 | `GET` | `/api/healthchecker` | Verify the database connection |
 
-### Search
+Without a valid `Authorization: Bearer <token>` header every contacts route
+answers `401`.
 
-`GET /api/contacts` accepts these query parameters. All matching is partial and
-case-insensitive; the named filters combine with AND.
-
-| Parameter | Description |
-|-----------|-------------|
-| `first_name` | match part of the first name |
-| `last_name` | match part of the last name |
-| `email` | match part of the email |
-| `search` | match any of the three fields above |
-| `skip`, `limit` | pagination, default `0` and `100` |
+### Example session
 
 ```bash
-curl 'http://localhost:8000/api/contacts?last_name=petr'
-curl 'http://localhost:8000/api/contacts?search=example.com'
-```
-
-### Upcoming birthdays
-
-```bash
-curl 'http://localhost:8000/api/contacts/birthdays'
-curl 'http://localhost:8000/api/contacts/birthdays?days=30'
-```
-
-Returns everyone whose birthday falls in the window starting today, sorted by
-how soon it is. Matching uses the month and day rather than the stored year, so
-a window running from late December into January works without a special case.
-A 29 February birthday is shown on 28 February in non-leap years.
-
-### Example
-
-```bash
-curl -X POST http://localhost:8000/api/contacts \
+# 1. Register
+curl -X POST http://localhost:8000/api/auth/signup \
   -H 'Content-Type: application/json' \
-  -d '{
-        "first_name": "Ivan",
-        "last_name": "Petrenko",
-        "email": "ivan.petrenko@example.com",
-        "phone": "+380441234567",
-        "birthday": "1990-05-17",
-        "additional_data": "Met at PyCon"
-      }'
+  -d '{"username": "murad", "email": "murad@example.com", "password": "secret123"}'
+
+# 2. Confirm the email: click the link from the inbox, or copy it from the
+#    server log when SMTP is not configured.
+
+# 3. Log in (form-encoded; `username` carries the email)
+curl -X POST http://localhost:8000/api/auth/login \
+  -d 'username=murad@example.com&password=secret123'
+
+# 4. Use the token
+TOKEN=eyJ...
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/contacts
 ```
+
+## How the pieces work
+
+**Authentication.** `POST /api/auth/signup` hashes the password with bcrypt and
+stores the user; the response is `201` with the new user (never the password).
+`POST /api/auth/login` verifies the hash and answers `401` for an unknown email
+and a wrong password alike, so it does not leak which accounts exist.
+
+**Authorization.** Login issues a JWT access token (`scope: access_token`,
+lifetime from `ACCESS_TOKEN_EXPIRE_MINUTES`). The `get_current_user` dependency
+decodes the Bearer token and loads the user; every contacts route depends on
+it, and every repository query filters by `contact.user_id`, so one user can
+never read or modify another user's contacts — a foreign contact id simply
+looks like a `404`.
+
+**Email verification.** The signup email contains a link with a second kind of
+JWT (`scope: email_token`, valid 7 days). `GET /api/auth/confirmed_email/{token}`
+marks the account confirmed; until then login answers `401 Email not confirmed`.
+`POST /api/auth/request_email` re-sends the link. With `MAIL_SERVER` empty the
+app logs the link instead of sending it, which keeps local testing easy.
+
+**Rate limiting.** slowapi limits `GET /api/users/me` to 10 requests per minute
+per client address; beyond that the server answers `429 Too Many Requests`.
+
+**Avatars.** `PATCH /api/users/avatar` uploads the image to Cloudinary under a
+per-user public id (so a new upload replaces the old one) and stores a 250×250
+delivery URL on the user.
 
 ## Project layout
 
 ```
-UMT-pythonweb-hw-08/
-├── main.py                  # FastAPI application
+UMT-pythonweb-hw-11/
+├── main.py                  # FastAPI application, CORS, rate-limit handler
 ├── src/
+│   ├── conf/
+│   │   └── config.py        # settings loaded from .env (pydantic-settings)
 │   ├── database/
 │   │   ├── db.py            # engine, session factory, request dependency
-│   │   └── models.py        # SQLAlchemy Contact model
+│   │   └── models.py        # User and Contact models
 │   ├── repository/
-│   │   └── contacts.py      # all database queries
+│   │   ├── contacts.py      # contact queries, always filtered by owner
+│   │   └── users.py         # user queries
 │   ├── routes/
-│   │   └── contacts.py      # HTTP layer
+│   │   ├── auth.py          # signup, login, email verification
+│   │   ├── contacts.py      # contact CRUD (JWT required)
+│   │   └── users.py         # /me (rate limited), avatar upload
+│   ├── services/
+│   │   ├── auth.py          # bcrypt hashing, JWT issue/verify, CurrentUser
+│   │   ├── email.py         # verification email (or logged link)
+│   │   └── limiter.py       # shared slowapi limiter
 │   └── schemas.py           # Pydantic schemas
-├── migrations/              # Alembic
-├── alembic.ini
+├── migrations/              # Alembic (hw-08 schema + users/ownership)
+├── Dockerfile               # runs migrations, then uvicorn
+├── docker-compose.yaml      # api + postgres
 ├── requirements.txt
-├── docker-compose.yaml
-└── .env.example
+└── .env.example             # every configurable value, no secrets committed
 ```
 
-Routes stay thin: they translate HTTP into repository calls and turn missing
-rows into `404`s, while every query and `commit` lives in the repository layer.
+Routes stay thin: they translate HTTP into repository calls, while every query
+and `commit` lives in the repository layer and everything security-related
+lives in `src/services/auth.py`.

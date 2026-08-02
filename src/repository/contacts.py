@@ -1,4 +1,8 @@
-"""Database access for contacts. Every query goes through SQLAlchemy."""
+"""Database access for contacts. Every query goes through SQLAlchemy.
+
+Every function takes the owning :class:`User` and filters on it, so one user
+can never read or modify another user's contacts.
+"""
 
 import calendar
 from datetime import date, timedelta
@@ -6,12 +10,13 @@ from datetime import date, timedelta
 from sqlalchemy import extract, or_, select, tuple_
 from sqlalchemy.orm import Session
 
-from src.database.models import Contact
+from src.database.models import Contact, User
 from src.schemas import ContactCreate, ContactUpdate
 
 
 def get_contacts(
     db: Session,
+    user: User,
     skip: int = 0,
     limit: int = 100,
     first_name: str | None = None,
@@ -19,12 +24,12 @@ def get_contacts(
     email: str | None = None,
     search: str | None = None,
 ) -> list[Contact]:
-    """List contacts, optionally narrowed by the search query parameters.
+    """List the user's contacts, optionally narrowed by the search parameters.
 
     The named filters are combined with AND; ``search`` matches any of the
     three fields. All matching is case-insensitive and partial.
     """
-    stmt = select(Contact)
+    stmt = select(Contact).where(Contact.user_id == user.id)
 
     if first_name:
         stmt = stmt.where(Contact.first_name.ilike(f"%{first_name}%"))
@@ -45,17 +50,22 @@ def get_contacts(
     return list(db.execute(stmt).scalars().all())
 
 
-def get_contact(db: Session, contact_id: int) -> Contact | None:
-    return db.get(Contact, contact_id)
-
-
-def get_contact_by_email(db: Session, email: str) -> Contact | None:
-    stmt = select(Contact).where(Contact.email == email)
+def get_contact(db: Session, contact_id: int, user: User) -> Contact | None:
+    stmt = select(Contact).where(
+        Contact.id == contact_id, Contact.user_id == user.id
+    )
     return db.execute(stmt).scalars().first()
 
 
-def get_upcoming_birthdays(db: Session, days: int = 7) -> list[Contact]:
-    """Contacts whose birthday falls within the next ``days`` days, today included.
+def get_contact_by_email(db: Session, email: str, user: User) -> Contact | None:
+    stmt = select(Contact).where(
+        Contact.email == email, Contact.user_id == user.id
+    )
+    return db.execute(stmt).scalars().first()
+
+
+def get_upcoming_birthdays(db: Session, user: User, days: int = 7) -> list[Contact]:
+    """The user's contacts whose birthday falls within the next ``days`` days.
 
     Matching is done on (month, day) pairs rather than on the stored year, which
     makes the turn of the year work without a special case: a window starting on
@@ -71,10 +81,11 @@ def get_upcoming_birthdays(db: Session, days: int = 7) -> list[Contact]:
         month_day.append((2, 29))
 
     stmt = select(Contact).where(
+        Contact.user_id == user.id,
         tuple_(
             extract("month", Contact.birthday),
             extract("day", Contact.birthday),
-        ).in_(month_day)
+        ).in_(month_day),
     )
     contacts = list(db.execute(stmt).scalars().all())
 
@@ -85,8 +96,8 @@ def get_upcoming_birthdays(db: Session, days: int = 7) -> list[Contact]:
     return contacts
 
 
-def create_contact(db: Session, body: ContactCreate) -> Contact:
-    contact = Contact(**body.model_dump())
+def create_contact(db: Session, body: ContactCreate, user: User) -> Contact:
+    contact = Contact(**body.model_dump(), user_id=user.id)
     db.add(contact)
     db.commit()
     db.refresh(contact)
