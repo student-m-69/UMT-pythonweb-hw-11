@@ -86,6 +86,8 @@ class UserCreate(BaseModel):
 
 
 class UserResponse(BaseModel):
+    """Public view of an account; never carries the password hash."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -93,15 +95,26 @@ class UserResponse(BaseModel):
     email: EmailStr
     avatar: str | None
     confirmed: bool
+    role: str
     created_at: datetime
 
 
 class TokenResponse(BaseModel):
+    """The token pair issued by login and by the refresh endpoint."""
+
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
 
 
 class RequestEmail(BaseModel):
-    """Payload for asking the server to re-send the verification email."""
+    """Payload naming the address for a verification or password-reset email."""
 
     email: EmailStr
+
+
+class ResetPassword(BaseModel):
+    """Payload carrying the new password for the reset flow."""
+
+    # Same bounds as at registration: bcrypt reads at most 72 bytes.
+    password: Annotated[str, Field(min_length=6, max_length=72, examples=["newsecret123"])]

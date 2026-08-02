@@ -1,11 +1,13 @@
-"""SQLAlchemy models."""
+"""SQLAlchemy models: :class:`User`, :class:`Contact` and the :class:`Role` enum."""
 
+import enum
 from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Enum,
     ForeignKey,
     String,
     UniqueConstraint,
@@ -15,10 +17,24 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
-    pass
+    """Declarative base shared by every model."""
+
+
+class Role(str, enum.Enum):
+    """Access roles. Everyone registers as ``user``; ``admin`` is granted by hand."""
+
+    user = "user"
+    admin = "admin"
 
 
 class User(Base):
+    """A registered account that owns contacts.
+
+    The ``password`` column always holds a bcrypt hash, never the plain
+    password, and ``refresh_token`` holds the currently valid refresh token
+    so that a stolen old token cannot mint new access tokens.
+    """
+
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -30,6 +46,10 @@ class User(Base):
     password: Mapped[str] = mapped_column(String(255), nullable=False)
     avatar: Mapped[str | None] = mapped_column(String(255), nullable=True)
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    role: Mapped[Role] = mapped_column(
+        Enum(Role, name="role"), default=Role.user, server_default="user", nullable=False
+    )
+    refresh_token: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -44,6 +64,8 @@ class User(Base):
 
 
 class Contact(Base):
+    """One entry of a user's personal phone book."""
+
     __tablename__ = "contacts"
     # An email may repeat across users, but stays unique within one user's book.
     __table_args__ = (
