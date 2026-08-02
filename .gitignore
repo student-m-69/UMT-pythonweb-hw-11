@@ -10,3 +10,9 @@ env/
 .idea/
 .vscode/
 .DS_Store
+
+# Tests and docs artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+docs/_build/

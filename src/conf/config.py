@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 7
+
+    # Redis, used to cache the authenticated user between requests. With
+    # redis unreachable the app quietly falls back to querying PostgreSQL.
+    redis_url: str = "redis://localhost:6379/0"
+    user_cache_ttl_seconds: int = 900
 
     # SMTP for the verification email. With mail_server left empty the app
     # logs the confirmation link instead of sending it, so everything is

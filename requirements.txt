@@ -12,3 +12,4 @@ bcrypt>=4.1.0
 fastapi-mail>=1.4.1
 slowapi>=0.1.9
 cloudinary>=1.40.0
+redis>=5.0.0
