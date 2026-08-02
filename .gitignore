@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local connection settings; .env.example is committed instead.
+.env
+
+.idea/
+.vscode/
+.DS_Store
