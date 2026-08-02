@@ -1,9 +1,22 @@
 services:
+  api:
+    build: .
+    container_name: hw11-api
+    env_file: .env
+    environment:
+      # Inside the compose network the database host is the service name.
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-hw11secret}@postgres:5432/contacts_app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:16
-    container_name: hw08-postgres
+    container_name: hw11-postgres
     environment:
-      POSTGRES_PASSWORD: hw08secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hw11secret}
       POSTGRES_DB: contacts_app
     ports:
       - "5432:5432"
