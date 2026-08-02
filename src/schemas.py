@@ -74,3 +74,34 @@ class ContactResponse(ContactBase):
     id: int
     created_at: datetime
     updated_at: datetime
+
+
+class UserCreate(BaseModel):
+    """Payload for registering a new user."""
+
+    username: Annotated[str, Field(min_length=1, max_length=50, examples=["murad"])]
+    email: EmailStr
+    # bcrypt reads at most 72 bytes, so longer passwords are rejected upfront.
+    password: Annotated[str, Field(min_length=6, max_length=72, examples=["secret123"])]
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: EmailStr
+    avatar: str | None
+    confirmed: bool
+    created_at: datetime
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class RequestEmail(BaseModel):
+    """Payload for asking the server to re-send the verification email."""
+
+    email: EmailStr
